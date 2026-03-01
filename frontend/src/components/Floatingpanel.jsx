@@ -1,35 +1,64 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
-// ─── Inline styles (no Tailwind needed — works in any injected context) ────────
+const PANEL_WIDTH = 360;
+const PANEL_HEIGHT = 520;
+const BUBBLE_SIZE = 52;
+const MARGIN = 12;
+
+// Smart position: panel flips so it's always fully visible
+function getPanelPosition(bubbleX, bubbleY) {
+  const screenW = window.innerWidth;
+  const screenH = window.innerHeight;
+
+  // Horizontal: open to left if bubble is in right half
+  const openLeft = bubbleX + BUBBLE_SIZE + PANEL_WIDTH + MARGIN > screenW;
+  const panelX = openLeft
+    ? bubbleX - PANEL_WIDTH - MARGIN
+    : bubbleX + BUBBLE_SIZE + MARGIN;
+
+  // Vertical: open upward if bubble is in bottom half
+  const openUp = bubbleY + PANEL_HEIGHT + MARGIN > screenH;
+  const panelY = openUp
+    ? bubbleY - PANEL_HEIGHT + BUBBLE_SIZE
+    : bubbleY;
+
+  // Clamp so panel never goes off screen
+  return {
+    x: Math.max(MARGIN, Math.min(panelX, screenW - PANEL_WIDTH - MARGIN)),
+    y: Math.max(MARGIN, Math.min(panelY, screenH - PANEL_HEIGHT - MARGIN)),
+  };
+}
+
 const styles = {
-  // Floating trigger button
-  trigger: {
+  trigger: (x, y, isDragging) => ({
     position: "fixed",
-    bottom: "28px",
-    right: "28px",
-    width: "52px",
-    height: "52px",
+    left: `${x}px`,
+    top: `${y}px`,
+    width: `${BUBBLE_SIZE}px`,
+    height: `${BUBBLE_SIZE}px`,
     borderRadius: "50%",
     background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)",
     border: "1.5px solid rgba(99,179,237,0.35)",
-    boxShadow: "0 4px 24px rgba(0,0,0,0.45), 0 0 0 0 rgba(99,179,237,0.4)",
-    cursor: "pointer",
+    boxShadow: isDragging
+      ? "0 8px 32px rgba(99,179,237,0.35)"
+      : "0 4px 24px rgba(0,0,0,0.45)",
+    cursor: isDragging ? "grabbing" : "grab",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     zIndex: 999999,
-    transition: "transform 0.2s ease, box-shadow 0.2s ease",
-    animation: "aca-pulse 2.8s ease-in-out infinite",
-  },
-  triggerIcon: { width: "22px", height: "22px", fill: "#63b3ed" },
+    transition: isDragging ? "none" : "box-shadow 0.2s ease",
+    animation: isDragging ? "none" : "aca-pulse 2.8s ease-in-out infinite",
+    userSelect: "none",
+  }),
+  triggerIcon: { width: "22px", height: "22px", fill: "#63b3ed", pointerEvents: "none" },
 
-  // Main panel
-  panel: {
+  panel: (x, y) => ({
     position: "fixed",
-    bottom: "90px",
-    right: "28px",
-    width: "360px",
-    maxHeight: "520px",
+    left: `${x}px`,
+    top: `${y}px`,
+    width: `${PANEL_WIDTH}px`,
+    maxHeight: `${PANEL_HEIGHT}px`,
     background: "#0d1117",
     border: "1px solid rgba(99,179,237,0.18)",
     borderRadius: "16px",
@@ -39,10 +68,8 @@ const styles = {
     overflow: "hidden",
     display: "flex",
     flexDirection: "column",
-    transition: "opacity 0.2s ease, transform 0.2s ease",
-  },
+  }),
 
-  // Header
   header: {
     padding: "14px 18px",
     background: "rgba(99,179,237,0.06)",
@@ -50,7 +77,6 @@ const styles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    cursor: "grab",
     userSelect: "none",
   },
   headerLeft: { display: "flex", alignItems: "center", gap: "10px" },
@@ -85,8 +111,13 @@ const styles = {
     borderRadius: "4px",
     transition: "color 0.15s",
   },
-
-  // Captured text section
+  dragHint: {
+    fontSize: "10px",
+    color: "#2d3748",
+    textAlign: "center",
+    padding: "4px",
+    letterSpacing: "0.08em",
+  },
   capturedSection: { padding: "14px 18px 0" },
   sectionLabel: {
     fontSize: "10px",
@@ -109,8 +140,6 @@ const styles = {
     wordBreak: "break-word",
   },
   placeholder: { color: "#2d3748", fontStyle: "italic" },
-
-  // Action row
   actionRow: {
     padding: "12px 18px",
     display: "flex",
@@ -129,18 +158,16 @@ const styles = {
     transition: "all 0.15s",
     fontFamily: "inherit",
   }),
-
-  // Analyze button
-  analyzeBtn: (loading) => ({
+  analyzeBtn: (disabled) => ({
     margin: "0 18px 14px",
     padding: "10px",
     borderRadius: "8px",
-    background: loading
+    background: disabled
       ? "rgba(99,179,237,0.05)"
       : "linear-gradient(135deg, #1a3a5c, #0f2744)",
-    border: `1px solid ${loading ? "rgba(99,179,237,0.15)" : "rgba(99,179,237,0.35)"}`,
-    color: loading ? "#4a5568" : "#63b3ed",
-    cursor: loading ? "not-allowed" : "pointer",
+    border: `1px solid ${disabled ? "rgba(99,179,237,0.15)" : "rgba(99,179,237,0.35)"}`,
+    color: disabled ? "#4a5568" : "#63b3ed",
+    cursor: disabled ? "not-allowed" : "pointer",
     fontSize: "12px",
     letterSpacing: "0.1em",
     textTransform: "uppercase",
@@ -152,8 +179,6 @@ const styles = {
     justifyContent: "center",
     gap: "8px",
   }),
-
-  // Suggestions area
   suggestionsArea: {
     flex: 1,
     overflowY: "auto",
@@ -162,15 +187,12 @@ const styles = {
     flexDirection: "column",
     gap: "10px",
   },
-
-  // Suggestion card
   card: {
     background: "rgba(255,255,255,0.03)",
     border: "1px solid rgba(255,255,255,0.07)",
     borderRadius: "10px",
     padding: "12px 14px",
     transition: "border-color 0.2s, background 0.2s",
-    cursor: "default",
   },
   cardHeader: {
     display: "flex",
@@ -180,7 +202,7 @@ const styles = {
   },
   cardType: (color) => ({
     fontSize: "10px",
-    color: color,
+    color,
     letterSpacing: "0.1em",
     textTransform: "uppercase",
     fontWeight: "600",
@@ -207,8 +229,6 @@ const styles = {
     fontSize: "11px",
     color: "#2d3748",
   },
-
-  // Status/loading
   statusRow: {
     padding: "18px",
     display: "flex",
@@ -228,56 +248,59 @@ const styles = {
   },
 };
 
-// ─── Suggestion type config ────────────────────────────────────────────────────
 const TYPES = {
   grammar: { label: "Grammar Fix", color: "#f6ad55" },
-  rewrite: { label: "Rewrite", color: "#63b3ed" },
-  reply: { label: "Smart Reply", color: "#b794f4" },
-  code: { label: "Code Fix", color: "#68d391" },
+  rewrite: { label: "Rewrite",     color: "#63b3ed" },
+  reply:   { label: "Smart Reply", color: "#b794f4" },
+  code:    { label: "Code Fix",    color: "#68d391" },
 };
 
-// ─── Mock AI response (replace with real API call later) ──────────────────────
 function mockAnalyze(text, mode) {
   return new Promise((resolve) => {
     setTimeout(() => {
       if (mode === "grammar") {
-        resolve([
-          {
-            type: "grammar",
-            suggestion: text
-              .replace(/\bi\b/g, "I")
-              .replace(/\s{2,}/g, " ")
-              .trim() + (text.endsWith(".") ? "" : "."),
-            explanation: "Fixed capitalization and added punctuation.",
-          },
-        ]);
+        resolve([{
+          type: "grammar",
+          suggestion: text.replace(/\bi\b/g, "I").replace(/\s{2,}/g, " ").trim() + (text.endsWith(".") ? "" : "."),
+          explanation: "Fixed capitalization and added punctuation.",
+        }]);
       } else if (mode === "reply") {
         resolve([
           { type: "reply", suggestion: "Thanks for the update! I'll get back to you shortly.", explanation: "Professional & friendly" },
           { type: "reply", suggestion: "Got it, noted. Will follow up by EOD.", explanation: "Concise & direct" },
         ]);
       } else if (mode === "code") {
-        resolve([
-          { type: "code", suggestion: "// Consider adding error handling here\ntry {\n  " + text + "\n} catch (err) {\n  console.error(err);\n}", explanation: "Wrapped in try/catch for safety." },
-        ]);
+        resolve([{
+          type: "code",
+          suggestion: `// Consider adding error handling here\ntry {\n  ${text}\n} catch (err) {\n  console.error(err);\n}`,
+          explanation: "Wrapped in try/catch for safety.",
+        }]);
       } else {
-        resolve([
-          { type: "rewrite", suggestion: "Here's a clearer version of your text, rewritten for better flow and readability.", explanation: "Improved clarity and structure." },
-        ]);
+        resolve([{
+          type: "rewrite",
+          suggestion: "Here's a clearer version of your text, rewritten for better flow and readability.",
+          explanation: "Improved clarity and structure.",
+        }]);
       }
     }, 1400);
   });
 }
 
-// ─── Main Component ────────────────────────────────────────────────────────────
 export default function FloatingPanel() {
+  const [pos, setPos] = useState({
+    x: window.innerWidth - BUBBLE_SIZE - MARGIN,
+    y: window.innerHeight - BUBBLE_SIZE - MARGIN,
+  });
+  const [isDragging, setIsDragging] = useState(false);
   const [open, setOpen] = useState(false);
   const [capturedText, setCapturedText] = useState("");
   const [mode, setMode] = useState("grammar");
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [applied, setApplied] = useState(null);
-  const panelRef = useRef(null);
+
+  const dragStart = useRef(null);
+  const hasDragged = useRef(false);
 
   // Inject keyframe animations once
   useEffect(() => {
@@ -288,20 +311,68 @@ export default function FloatingPanel() {
       @keyframes aca-spin { to { transform: rotate(360deg); } }
       @keyframes aca-pulse {
         0%, 100% { box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 0 0 0 rgba(99,179,237,0.4); }
-        50% { box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 0 0 8px rgba(99,179,237,0); }
+        50%       { box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 0 0 8px rgba(99,179,237,0); }
       }
       @keyframes aca-slide-in {
-        from { opacity: 0; transform: translateY(12px) scale(0.97); }
-        to   { opacity: 1; transform: translateY(0)   scale(1); }
+        from { opacity: 0; transform: translateY(8px) scale(0.97); }
+        to   { opacity: 1; transform: translateY(0) scale(1); }
       }
-      .aca-panel-enter { animation: aca-slide-in 0.22s ease forwards; }
-      .aca-card:hover { border-color: rgba(99,179,237,0.22) !important; background: rgba(255,255,255,0.05) !important; }
+      .aca-panel-enter { animation: aca-slide-in 0.2s ease forwards; }
+      .aca-card:hover  { border-color: rgba(99,179,237,0.22) !important; background: rgba(255,255,255,0.05) !important; }
       .aca-apply:hover { background: rgba(72,187,120,0.18) !important; }
-      .aca-action:hover { border-color: rgba(99,179,237,0.4) !important; color: #a0c4e2 !important; }
       .aca-close:hover { color: #a0aec0 !important; }
     `;
     document.head.appendChild(style);
   }, []);
+
+  // ── Drag logic ──────────────────────────────────────────────
+  const onMouseDown = useCallback((e) => {
+    e.preventDefault();
+    dragStart.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      posX: pos.x,
+      posY: pos.y,
+    };
+    hasDragged.current = false;
+    setIsDragging(true);
+  }, [pos]);
+
+  useEffect(() => {
+    const onMouseMove = (e) => {
+      if (!dragStart.current) return;
+      const dx = e.clientX - dragStart.current.mouseX;
+      const dy = e.clientY - dragStart.current.mouseY;
+
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        hasDragged.current = true;
+      }
+
+      // Keep bubble fully inside viewport
+      const newX = Math.min(Math.max(0, dragStart.current.posX + dx), window.innerWidth - BUBBLE_SIZE);
+      const newY = Math.min(Math.max(0, dragStart.current.posY + dy), window.innerHeight - BUBBLE_SIZE);
+      setPos({ x: newX, y: newY });
+    };
+
+    const onMouseUp = () => {
+      dragStart.current = null;
+      setIsDragging(false);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  // Click only toggles panel if user didn't drag
+  const handleClick = () => {
+    if (hasDragged.current) return;
+    setOpen((o) => !o);
+    setSuggestions([]);
+  };
 
   const handleAnalyze = async () => {
     if (!capturedText.trim() || loading) return;
@@ -314,54 +385,53 @@ export default function FloatingPanel() {
   };
 
   const handleApply = (suggestion, idx) => {
-    // In the real extension, this will inject text into the active input
     setCapturedText(suggestion);
     setApplied(idx);
   };
 
+  // Calculate smart panel position every time bubble moves or panel opens
+  const panelPos = getPanelPosition(pos.x, pos.y);
+
   return (
     <>
-      {/* ── Floating trigger button ── */}
+      {/* ── Draggable trigger bubble ── */}
       <button
-        style={styles.trigger}
-        onClick={() => { setOpen((o) => !o); setSuggestions([]); }}
-        title="AI Context Assistant"
+        style={styles.trigger(pos.x, pos.y, isDragging)}
+        onMouseDown={onMouseDown}
+        onClick={handleClick}
+        title="Drag to move · Click to open"
       >
-        <svg style={styles.triggerIcon} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z" opacity="0" />
-          <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/>
-          <circle cx="8.5" cy="11" r="1.5"/><circle cx="12" cy="11" r="1.5"/><circle cx="15.5" cy="11" r="1.5"/>
+        <svg style={styles.triggerIcon} viewBox="0 0 24 24">
+          <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z" />
+          <circle cx="8.5" cy="11" r="1.5" />
+          <circle cx="12" cy="11" r="1.5" />
+          <circle cx="15.5" cy="11" r="1.5" />
         </svg>
       </button>
 
-      {/* ── Floating panel ── */}
+      {/* ── Smart-positioned panel ── */}
       {open && (
-        <div ref={panelRef} style={styles.panel} className="aca-panel-enter">
+        <div style={styles.panel(panelPos.x, panelPos.y)} className="aca-panel-enter">
 
-          {/* Header */}
           <div style={styles.header}>
             <div style={styles.headerLeft}>
               <span style={styles.dot("#48bb78")} />
               <span style={styles.headerTitle}>AI Assistant</span>
               <span style={styles.headerBadge}>v0.1</span>
             </div>
-            <button
-              style={styles.closeBtn}
-              className="aca-close"
-              onClick={() => setOpen(false)}
-            >×</button>
+            <button style={styles.closeBtn} className="aca-close" onClick={() => setOpen(false)}>×</button>
           </div>
 
-          {/* Captured text */}
+          <div style={styles.dragHint}>⠿ drag the bubble to reposition</div>
+
           <div style={styles.capturedSection}>
             <div style={styles.sectionLabel}>Captured Text</div>
             <div style={styles.capturedBox}>
               {capturedText
                 ? capturedText
-                : <span style={styles.placeholder}>Start typing in a text field… it will appear here.</span>
+                : <span style={styles.placeholder}>Start typing in a text field…</span>
               }
             </div>
-            {/* For demo: manual input */}
             <textarea
               placeholder="Or paste text here to test…"
               value={capturedText}
@@ -378,19 +448,16 @@ export default function FloatingPanel() {
             />
           </div>
 
-          {/* Mode buttons */}
           <div style={styles.actionRow}>
             {Object.entries(TYPES).map(([key, { label }]) => (
               <button
                 key={key}
                 style={styles.actionBtn(mode === key)}
-                className="aca-action"
                 onClick={() => { setMode(key); setSuggestions([]); }}
               >{label}</button>
             ))}
           </div>
 
-          {/* Analyze button */}
           <button
             style={styles.analyzeBtn(loading || !capturedText.trim())}
             onClick={handleAnalyze}
@@ -400,7 +467,6 @@ export default function FloatingPanel() {
             {loading ? "Analyzing…" : "✦ Analyze"}
           </button>
 
-          {/* Suggestions */}
           <div style={styles.suggestionsArea}>
             {loading && (
               <div style={styles.statusRow}>
@@ -433,9 +499,7 @@ export default function FloatingPanel() {
                     </button>
                   </div>
                   <div style={styles.cardText}>{s.suggestion}</div>
-                  {s.explanation && (
-                    <div style={styles.cardMeta}>↳ {s.explanation}</div>
-                  )}
+                  {s.explanation && <div style={styles.cardMeta}>↳ {s.explanation}</div>}
                 </div>
               );
             })}
