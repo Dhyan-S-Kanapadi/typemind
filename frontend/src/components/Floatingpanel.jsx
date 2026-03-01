@@ -416,7 +416,7 @@ export default function FloatingPanel() {
           <div style={styles.header}>
             <div style={styles.headerLeft}>
               <span style={styles.dot("#48bb78")} />
-              <span style={styles.headerTitle}>AI Assistant</span>
+              <span style={styles.headerTitle}>TypeMind</span>
               <span style={styles.headerBadge}>v0.1</span>
             </div>
             <button style={styles.closeBtn} className="aca-close" onClick={() => setOpen(false)}>×</button>
