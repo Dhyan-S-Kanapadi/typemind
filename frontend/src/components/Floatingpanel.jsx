@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import useTextDetector from '../hooks/useTextDetector'
 
 const PANEL_WIDTH = 360;
 const PANEL_HEIGHT = 520;
@@ -293,7 +294,7 @@ export default function FloatingPanel() {
   });
   const [isDragging, setIsDragging] = useState(false);
   const [open, setOpen] = useState(false);
-  const [capturedText, setCapturedText] = useState("");
+ const { capturedText, setCapturedText, applyText, activeElement, sourceSite } = useTextDetector();
   const [mode, setMode] = useState("grammar");
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
@@ -385,10 +386,9 @@ export default function FloatingPanel() {
   };
 
   const handleApply = (suggestion, idx) => {
-    setCapturedText(suggestion);
-    setApplied(idx);
-  };
-
+  applyText(suggestion)
+  setApplied(idx)
+}
   // Calculate smart panel position every time bubble moves or panel opens
   const panelPos = getPanelPosition(pos.x, pos.y);
 
@@ -418,6 +418,18 @@ export default function FloatingPanel() {
               <span style={styles.dot("#48bb78")} />
               <span style={styles.headerTitle}>TypeMind</span>
               <span style={styles.headerBadge}>v0.1</span>
+              <span style={styles.headerBadge}>v0.1</span>
+{sourceSite && (
+  <span style={{
+    fontSize: "10px",
+    color: "#68d391",
+    background: "rgba(104,211,145,0.1)",
+    border: "1px solid rgba(104,211,145,0.25)",
+    borderRadius: "4px",
+    padding: "2px 7px",
+    letterSpacing: "0.06em",
+  }}>{sourceSite}</span>
+)}
             </div>
             <button style={styles.closeBtn} className="aca-close" onClick={() => setOpen(false)}>×</button>
           </div>
