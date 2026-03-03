@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import useTextDetector from '../hooks/useTextDetector'
+import { analyzText } from '../utils/api'
 
 const PANEL_WIDTH = 360;
 const PANEL_HEIGHT = 520;
@@ -256,37 +257,6 @@ const TYPES = {
   code:    { label: "Code Fix",    color: "#68d391" },
 };
 
-function mockAnalyze(text, mode) {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      if (mode === "grammar") {
-        resolve([{
-          type: "grammar",
-          suggestion: text.replace(/\bi\b/g, "I").replace(/\s{2,}/g, " ").trim() + (text.endsWith(".") ? "" : "."),
-          explanation: "Fixed capitalization and added punctuation.",
-        }]);
-      } else if (mode === "reply") {
-        resolve([
-          { type: "reply", suggestion: "Thanks for the update! I'll get back to you shortly.", explanation: "Professional & friendly" },
-          { type: "reply", suggestion: "Got it, noted. Will follow up by EOD.", explanation: "Concise & direct" },
-        ]);
-      } else if (mode === "code") {
-        resolve([{
-          type: "code",
-          suggestion: `// Consider adding error handling here\ntry {\n  ${text}\n} catch (err) {\n  console.error(err);\n}`,
-          explanation: "Wrapped in try/catch for safety.",
-        }]);
-      } else {
-        resolve([{
-          type: "rewrite",
-          suggestion: "Here's a clearer version of your text, rewritten for better flow and readability.",
-          explanation: "Improved clarity and structure.",
-        }]);
-      }
-    }, 1400);
-  });
-}
-
 export default function FloatingPanel() {
   const [pos, setPos] = useState({
     x: window.innerWidth - BUBBLE_SIZE - MARGIN,
@@ -299,6 +269,8 @@ export default function FloatingPanel() {
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [applied, setApplied] = useState(null);
+  const [error, setError] = useState(null);
+
 
   const dragStart = useRef(null);
   const hasDragged = useRef(false);
@@ -374,16 +346,23 @@ export default function FloatingPanel() {
     setOpen((o) => !o);
     setSuggestions([]);
   };
+const handleAnalyze = async () => {
+  if (!capturedText.trim() || loading) return
+  setLoading(true)
+  setSuggestions([])
+  setApplied(null)
+  setError(null)
 
-  const handleAnalyze = async () => {
-    if (!capturedText.trim() || loading) return;
-    setLoading(true);
-    setSuggestions([]);
-    setApplied(null);
-    const results = await mockAnalyze(capturedText, mode);
-    setSuggestions(results);
-    setLoading(false);
-  };
+  try {
+    const results = await analyzText(capturedText, mode)
+    // Handle both array and single object responses
+    setSuggestions(Array.isArray(results) ? results : [results])
+  } catch (err) {
+    setError(err.message)
+  } finally {
+    setLoading(false)
+  }
+}
 
   const handleApply = (suggestion, idx) => {
   applyText(suggestion)
@@ -429,8 +408,7 @@ export default function FloatingPanel() {
     padding: "2px 7px",
     letterSpacing: "0.06em",
   }}>{sourceSite}</span>
-)}
-            </div>
+)}        </div>
             <button style={styles.closeBtn} className="aca-close" onClick={() => setOpen(false)}>×</button>
           </div>
 
@@ -487,11 +465,27 @@ export default function FloatingPanel() {
               </div>
             )}
 
-            {!loading && suggestions.length === 0 && (
-              <div style={{ ...styles.statusRow, justifyContent: "center", color: "#2d3748", fontSize: "11px" }}>
-                {capturedText ? "Press Analyze to get suggestions" : "No text captured yet"}
-              </div>
-            )}
+            {/* Error message */}
+{error && (
+  <div style={{
+    padding: "12px 14px",
+    background: "rgba(245,101,101,0.08)",
+    border: "1px solid rgba(245,101,101,0.25)",
+    borderRadius: "8px",
+    color: "#fc8181",
+    fontSize: "12px",
+    lineHeight: "1.5",
+  }}>
+    ⚠ {error}
+  </div>
+)}
+
+{/* Empty state */}
+{!loading && !error && suggestions.length === 0 && (
+  <div style={{ ...styles.statusRow, justifyContent: "center", color: "#2d3748", fontSize: "11px" }}>
+    {capturedText ? "Press Analyze to get suggestions" : "No text captured yet"}
+  </div>
+)}
 
             {suggestions.map((s, i) => {
               const typeConfig = TYPES[s.type] || TYPES.rewrite;

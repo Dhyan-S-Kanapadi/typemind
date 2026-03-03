@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "TypeMind",
   "version": "0.1",
-  "description": "AI-powered writing assistant for Gmail, WhatsApp and more",
+  "description": "AI-powered clarity for everything you type",
 
   "permissions": [
     "activeTab",
@@ -11,9 +11,13 @@
   ],
 
   "host_permissions": [
-    "https://*/*",
-    "http://*/*"
+    "http://127.0.0.1:8080/*",
+    "http://localhost:8080/*"
   ],
+"background": {
+  "service_worker": "src/background.js",
+  "type": "module"
+},
 
   "content_scripts": [
     {
